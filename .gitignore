@@ -7,3 +7,7 @@ src/*.dll
 deweather.Rproj
 *~
 *Rproj
+README_cache/*
+docs
+.DS_Store
+inst/doc

@@ -1,33 +1,50 @@
-Package: deweather
 Type: Package
+Package: deweather
 Title: Remove the influence of weather on air quality data
-Version: 0.4
-Date: 2017-12-16
-Authors@R: c(person("David", "Carslaw", role = c("aut", "cre"), email =
-    "david.carslaw@york.ac.uk"))
+Version: 0.7.2.9102
+Authors@R: 
+    person("David", "Carslaw", , "david.carslaw@york.ac.uk", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0003-0991-950X"))
 Maintainer: David Carslaw <david.carslaw@york.ac.uk>
-Description: Tools to model and account for (or remove) the effect of
-    meteorology on atmospheric composition data. The technique uses boosted
-    regression trees based on the gbm package. Code can also be run using multiple
+Description: Model and account for (or remove) the effect of meteorology
+    on atmospheric composition data. The technique uses boosted regression
+    trees based on the gbm package. Code can also be run using multiple
     cores if available.
-URL: http://github.com/davidcarslaw/dweather
-BugReports: http://github.com/davidcarslaw/deweather/issues
+License: GPL (>= 2)
+URL: https://davidcarslaw.github.io/deweather/,
+    https://github.com/davidcarslaw/deweather
+BugReports: https://github.com/davidcarslaw/deweather/issues
 Depends:
     R (>= 2.15.1)
 Imports:
-    gbm,
+    cli,
     doParallel,
-    parallel,
-    foreach,
     dplyr,
-    lubridate,
-    openair,
-    plyr,
-    mgcv,
-    reshape2,
+    foreach,
+    gbm,
     ggplot2,
-    gridExtra
-License: GPL (>= 2)
-LazyLoad: yes
+    gridExtra,
+    lubridate,
+    magrittr,
+    mgcv,
+    openair,
+    parallel,
+    patchwork,
+    purrr,
+    rlang,
+    scales,
+    stats,
+    tibble,
+    tidyr,
+    utils
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: 
+    knitr
+Encoding: UTF-8
+Language: en-GB
 LazyData: yes
-RoxygenNote: 6.0.1
+LazyLoad: yes
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

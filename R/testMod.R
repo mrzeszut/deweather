@@ -1,101 +1,218 @@
-##' Function to build and test a gbm model
-##'
-##' Info here
-##' @title Function to test different meteorological normalisation models.
-##' @param dat Data frame to analyse.
-##' @param vars Explanatory variables to use.
-##' @param pollutant The name of the variable to apply meteorological
-##'     normalisation to.
-##' @param train.frac Fraction of data to train a model on. The model
-##'     is tested against the withheld 0.2 proportion.
-##' @param n.trees Number of trees to use.
-##' @export
-##' @return Returns to be added.
-##' @author David Carslaw
-testMod <- function(dat, vars = c("trend", "ws", "wd", "hour",
-                                  "weekday", "temp"),
-                    pollutant = "nox", train.frac = 0.8,
-                    n.trees = 200) {
+#' Function to test different meteorological normalisation models.
+#' 
+#' @inheritParams buildMod
+#' @param train.frac Fraction of data to train a model on. The model is tested
+#'   against the withheld 0.2 proportion.
+#' @param n.trees Number of trees to use. If `n.trees = NA` then the
+#'   function will conduct cross-validation to calculate the optimum number.
+#' @param plot The default, `TRUE`, automatically prints a plot and two tables
+#'   of statistics to review the model output. `FALSE` disables this behaviour.
+#' @export
+#' @seealso [buildMod()] for fitting a final model
+#' @return Returns to be added.
+#' @author David Carslaw
+testMod <- function(input_data,
+                    vars = c(
+                      "trend", "ws", "wd", "hour",
+                      "weekday", "air_temp"
+                    ),
+                    pollutant = "nox",
+                    train.frac = 0.8,
+                    n.trees = NA,
+                    shrinkage = 0.1,
+                    interaction.depth = 5,
+                    bag.fraction = 0.5,
+                    n.minobsinnode = 10,
+                    cv.folds = 5,
+                    seed = 123,
+                    plot = TRUE) {
+  ## silence R check
+  statistic <- value <- NULL
 
-    ## silence R check
-    statistic = value = NULL
-
-    ## add other variables, select only those required for modelling
-    dat <- prepData(dat)
-    dat <- dat[(c("date", vars, pollutant))]
-
-    variables <- paste(vars, collapse = "+")
-    eq <- formula(paste(pollutant, "~", variables))
-
-    ## make sure no NA in response
-    id <- which(is.na(dat[[pollutant]]))
-    if (length(id) > 0 )
-        dat <- dat[-id, ]
-
-    id <- sample(1:nrow(dat), size = train.frac * nrow(dat))
-    train.dat <- dat[id, ]
-    pred.dat <- dat[-id, ]
+  ## add other variables, select only those required for modelling
+  input_data <- prepData(input_data)
+  input_data <- input_data[(c("date", vars, pollutant))]
+  
+  variables <- paste(vars, collapse = "+")
+  eq <- stats::formula(paste(pollutant, "~", variables))
+  
+  ## make sure no NA in response
+  id <- which(is.na(input_data[[pollutant]]))
+  if (length(id) > 0) {
+    input_data <- input_data[-id, ]
+  }
+  
+  # make reproducible
+  set.seed(seed)
+  id <-
+    sample(1:nrow(input_data), size = train.frac * nrow(input_data))
+  train.dat <- input_data[id, ]
+  pred.dat <- input_data[-id, ]
+  
+  
+  if (is.na(n.trees)) {
     
-    mod <- runGbm(train.dat, eq, vars, return.mod = TRUE, simulate = FALSE, n.trees = n.trees)
-    
-    # predictions based on training data
-    pred_train <- predict.gbm(mod$model, newdata = train.dat, n.trees = n.trees)
-    
-    pred_train <- data.frame(train.dat, pred = pred_train)
-    
-        ## calculate key model statistics
-    stats_train <- modStats(pred_train, obs = pollutant, mod = "pred")
-    stats_train <- as.data.frame(t(stats_train))
-    names(stats_train) <- "value"
-    stats_train$statistic <- rownames(stats_train)
-    stats_train <- stats_train[-1, ]
-    stats_train <- select(stats_train, statistic, value)
-    stats_train$value <- as.numeric(as.character(stats_train$value))
-    stats_train$value <- round(stats_train$value, 2)
-    
-    
-    # predictions based on test data
-
-    pred <- predict.gbm(mod$model, newdata = pred.dat, n.trees = n.trees)
-
-    pred <- data.frame(pred.dat, pred = pred)
-
-    plt <- ggplot(pred, aes_string("pred", pollutant)) +
-      geom_point(fill = "grey30", color = "white", pch = 21, size = 3) +
-      xlab("predicted") + 
-      ylab("measured")
-      
-
-    ## calculate key model statistics
-    stats <- modStats(pred, obs = pollutant, mod = "pred")
-    stats <- as.data.frame(t(stats))
-    names(stats) <- "value"
-    stats$statistic <- rownames(stats)
-    stats <- stats[-1, ]
-    stats <- select(stats, statistic, value)
-    stats$value <- as.numeric(as.character(stats$value))
-    stats$value <- round(stats$value, 2)
-
-    head_train <- data.frame(statistic = "Training", value = NA, 
-                             stringsAsFactors = FALSE)
-    
-    head_test <- data.frame(statistic = "Test data", value = NA,
-                            stringsAsFactors = FALSE)
-    
-    stats <- bind_rows(head_test, stats)
-    stats_train <- bind_rows(head_train, stats_train)
-    
-    # print % difference in RMSE
-    diff_rmse <- round(100 * (stats$value[8] - stats_train$value[8]) / stats$value[8], 1)
-    print(paste0("Percent increase in RMSE using test data is ", diff_rmse, "%"))
-    
-
-    tbl <- gridExtra::tableGrob(stats, rows = NULL)
-    tbl_train <- gridExtra::tableGrob(stats_train, rows = NULL)
-
-    gridExtra::grid.arrange(plt, tbl, tbl_train, nrow = 1, as.table = TRUE)
-
-    
-    invisible(pred)
-
+    # if n.trees = NA, calculate optimum number using CV; use all data for this
+    # because it will be randomly split select maximum of 10000 rows
+    if (nrow(train.dat) > 10000) {
+      train.dat <- train.dat %>%
+        dplyr::slice_sample(n = 10000)
+    } else {
+      train.dat <- train.dat
     }
+    
+    mod <- 
+      gbm::gbm(
+        eq,
+        distribution = "gaussian",
+        data = train.dat,
+        n.trees = 5000,
+        shrinkage = shrinkage,
+        interaction.depth = interaction.depth,
+        bag.fraction = bag.fraction,
+        n.minobsinnode = n.minobsinnode,
+        cv.folds = cv.folds,
+        verbose = FALSE
+      )  
+    
+    # find index for n trees with minimum CV error
+    min_MSE <- which.min(mod$cv.error)
+    
+  } else {
+    mod <- 
+      gbm::gbm(
+        eq,
+        distribution = "gaussian",
+        data = train.dat,
+        n.trees = n.trees,
+        shrinkage = shrinkage,
+        interaction.depth = interaction.depth,
+        bag.fraction = bag.fraction,
+        n.minobsinnode = n.minobsinnode,
+        cv.folds = cv.folds,
+        verbose = FALSE
+      ) 
+  }
+  
+  if (is.na(n.trees)) {
+    n.trees <- min_MSE
+    cli::cli_inform(c("i" = "Optimum number of trees is {.strong {n.trees}}"))
+    cli::cli_inform(c("i" = "RMSE from cross-validation is {.strong {round(sqrt(mod$cv.error[min_MSE]), 2)}}"))
+  }
+  
+  # predictions based on training data
+  pred_train <-
+    gbm::predict.gbm(
+      mod,
+      newdata = train.dat,
+      n.trees = n.trees,
+      shrinkage = shrinkage,
+      interaction.depth = interaction.depth,
+      bag.fraction = bag.fraction,
+      n.minobsinnode = n.minobsinnode,
+      seed = seed
+    )
+  
+  pred_train <- dplyr::tibble(train.dat, pred = pred_train)
+  
+  ## calculate key model statistics
+  stats_train <-
+    openair::modStats(pred_train, obs = pollutant, mod = "pred")
+  
+  stats_train <- stats_train %>% 
+    tidyr::pivot_longer(cols = -1) %>% 
+    dplyr::rename(statistic = "name") %>% 
+    dplyr::select(-1) %>% 
+    dplyr::mutate(value = round(value, 2)) %>% 
+    dplyr::filter(!statistic %in% c("P", "COE", "IOA"))
+  
+  # predictions based on test data
+  
+  pred <-
+    gbm::predict.gbm(
+      mod,
+      newdata = pred.dat,
+      n.trees = n.trees,
+      shrinkage = shrinkage,
+      interaction.depth = interaction.depth,
+      bag.fraction = bag.fraction,
+      n.minobsinnode = n.minobsinnode,
+      seed = seed
+    )
+  
+  pred <- data.frame(pred.dat, pred = pred)
+  
+  plt <-
+    ggplot2::ggplot(pred, ggplot2::aes(.data[["pred"]], .data[[pollutant]])) +
+    ggplot2::geom_point(
+      fill = "grey30",
+      color = "white",
+      pch = 21,
+      size = 2.5
+    ) +
+    ggplot2::geom_abline(
+      slope = 1,
+      intercept = 0,
+      col = "deeppink",
+      lwd = 1.5
+    ) +
+    ggplot2::geom_abline(
+      slope = 0.5,
+      intercept = 0,
+      col = "turquoise4",
+      lty = 5
+    ) +
+    ggplot2::geom_abline(
+      slope = 2,
+      intercept = 0,
+      col = "turquoise4",
+      lty = 5
+    ) +
+    ggplot2::xlab("predicted") +
+    ggplot2::ylab("measured")
+  
+  ## calculate key model statistics
+  stats <- openair::modStats(pred, obs = pollutant, mod = "pred")
+  
+  stats <- stats %>% 
+    tidyr::pivot_longer(cols = -1) %>% 
+    dplyr::rename(statistic = "name") %>% 
+    dplyr::select(-1) %>% 
+    dplyr::mutate(value = round(value, 2)) %>% 
+    dplyr::filter(!statistic %in% c("P", "COE", "IOA"))
+  
+  stats_both <-
+    dplyr::left_join(
+      dplyr::rename(stats_train, "train" = "value"),
+      dplyr::rename(stats, "test" = "value"),
+      by = "statistic"
+    ) %>%
+    dplyr::tibble()
+  
+  # plotting side effect - disabled w/ `plot` arg
+  if (plot) {
+    # print % difference in RMSE
+    diff_rmse <- (stats$value[stats$statistic == "RMSE"] - stats_train$value[stats_train$statistic == "RMSE"]) / stats$value[stats$statistic == "RMSE"]
+    diff_rmse <- scales::label_percent(accuracy = 0.1)(diff_rmse)
+    cli::cli_inform(c("i" = "Percent increase in RMSE using test data is {.strong {diff_rmse}}"))
+    
+    # get table of stats
+    tbl <-
+      gridExtra::tableGrob(dplyr::rename(
+        stats_both,
+        "training data" = "train",
+        "testing data" = "test"
+      ),
+      rows = NULL)
+    
+    # print plot
+    patchwork::wrap_plots(plt, tbl, nrow = 1)
+  }
+  
+  invisible(list(
+    pred = dplyr::tibble(pred),
+    stats = stats_both,
+    plot = plt,
+    optimum_trees = n.trees
+  ))
+}
